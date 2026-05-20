@@ -59,7 +59,12 @@ class PlaceLimitOrderUseCase(
 
         val instrument = instruments.get(cmd.instrumentId)
             ?: throw InstrumentNotFoundException(cmd.instrumentId.raw)
-        OrderValidator.validate(instrument, OrderType.LIMIT, cmd.quantity, cmd.limitPrice)
+
+        // Клиент часто шлёт live-цену из стрима с большим количеством знаков (например,
+        // 178.332372) — приводим к допустимому шагу инструмента: round-down для BUY (не
+        // покупаем дороже желаемого), round-up для SELL (не продаём дешевле).
+        val price = roundToPriceStep(cmd.limitPrice, instrument.priceStep, cmd.side)
+        OrderValidator.validate(instrument, OrderType.LIMIT, cmd.quantity, price)
 
         val orderId = OrderId.random()
         val now = clock.now()
@@ -69,12 +74,12 @@ class PlaceLimitOrderUseCase(
             instrument = instrument,
             side = cmd.side,
             quantity = cmd.quantity,
-            limitPrice = cmd.limitPrice,
+            limitPrice = price,
             idempotencyKey = cmd.idempotencyKey,
             createdAt = now,
         )
-        val fee = commission.forFill(cmd.limitPrice, cmd.quantity)
-        val notional = cmd.limitPrice * cmd.quantity
+        val fee = commission.forFill(price, cmd.quantity)
+        val notional = price * cmd.quantity
 
         tx.inTransaction {
             val user = users.findById(cmd.userId) ?: throw IllegalStateException("user missing")
@@ -110,5 +115,15 @@ class PlaceLimitOrderUseCase(
             ),
         )
         return order
+    }
+
+    private fun roundToPriceStep(price: Money, step: Money, side: Side): Money {
+        val rem = price.microUnits % step.microUnits
+        if (rem == 0L) return price
+        val down = Money.ofMicroUnits(price.microUnits - rem)
+        return when (side) {
+            Side.BUY -> down
+            Side.SELL -> Money.ofMicroUnits(down.microUnits + step.microUnits)
+        }
     }
 }
