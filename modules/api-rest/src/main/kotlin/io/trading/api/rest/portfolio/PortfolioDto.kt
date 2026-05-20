@@ -13,6 +13,10 @@ data class PortfolioDto(
 @Serializable
 data class PositionDto(
     val instrumentId: Int,
+    val ticker: String,
+    val name: String,
+    val currency: String,
+    val lotSize: Int,
     val quantity: Long,
     val avgPrice: String,
     val currentPrice: String,
@@ -32,6 +36,10 @@ fun Portfolio.toDto() = PortfolioDto(
         val frac = abs % 100
         PositionDto(
             instrumentId = p.instrumentId.raw,
+            ticker = p.instrument?.ticker?.symbol ?: p.instrumentId.raw.toString(),
+            name = p.instrument?.name ?: "",
+            currency = p.instrument?.currency?.code ?: "",
+            lotSize = p.instrument?.lotSize ?: 1,
             quantity = p.position.quantity.lots,
             avgPrice = p.position.avgPrice.toDecimalString(),
             currentPrice = p.currentPrice.toDecimalString(),

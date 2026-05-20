@@ -209,7 +209,7 @@ fun appModule(cfg: AppConfig) = module {
     single { ListOrdersUseCase(get()) }
     single { GetOrderUseCase(get()) }
     single { LimitOrderMatchingService(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), cfg.orders.limitExecutor.partialFillProbability) }
-    single { GetPortfolioUseCase(get(), get(), get()) }
+    single { GetPortfolioUseCase(get(), get(), get(), get()) }
     single { GetTradesUseCase(get()) }
 
     // ── WS helpers ───────────────────────────────────────────────────────

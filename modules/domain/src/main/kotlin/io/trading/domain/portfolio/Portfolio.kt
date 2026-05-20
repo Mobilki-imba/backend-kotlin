@@ -1,5 +1,6 @@
 package io.trading.domain.portfolio
 
+import io.trading.domain.instrument.Instrument
 import io.trading.domain.instrument.InstrumentId
 import io.trading.domain.money.Money
 import io.trading.domain.user.UserId
@@ -15,6 +16,7 @@ data class Portfolio(
 
 data class PositionWithMarket(
     val instrumentId: InstrumentId,
+    val instrument: Instrument?,    // null если справочник недоступен — фолбэк по instrumentId
     val position: Position,
     val currentPrice: Money,
 ) {
