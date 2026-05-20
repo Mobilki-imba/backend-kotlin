@@ -1,0 +1,499 @@
+openapi: 3.0.3
+info:
+  title: Trading BFF API
+  version: 1.0.0
+  description: Client BFF для симулятора биржевой торговли (Контракт C из спецификации).
+servers:
+  - url: http://localhost:8080
+    description: Local dev
+paths:
+  /health/live:
+    get:
+      summary: Liveness probe
+      responses:
+        "200": { description: OK }
+  /health/ready:
+    get:
+      summary: Readiness probe
+      responses:
+        "200": { description: Ready }
+        "503": { description: Not ready }
+
+  /api/v1/auth/register:
+    post:
+      summary: Регистрация пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "409":
+          description: Email already taken
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /api/v1/auth/login:
+    post:
+      summary: Логин
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /api/v1/auth/refresh:
+    post:
+      summary: Ротация refresh-токена
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/auth/logout:
+    post:
+      summary: Отозвать refresh-токен
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        "204": { description: No Content }
+
+  /api/v1/instruments:
+    get:
+      summary: Список инструментов
+      security: [ { bearerAuth: [] } ]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Instrument" }
+
+  /api/v1/instruments/{id}:
+    get:
+      summary: Детали инструмента + текущая котировка
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstrumentDetails" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/instruments/{id}/candles:
+    get:
+      summary: Свечи
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+        - in: query
+          name: interval
+          schema: { type: string, enum: [1m, 5m, 15m, 1h, 1d] }
+        - in: query
+          name: from
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: to
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 100, maximum: 1000 }
+        - in: query
+          name: includeOpen
+          schema: { type: boolean, default: true }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Candle" }
+
+  /api/v1/instruments/{id}/orderbook:
+    get:
+      summary: Стакан заявок
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrderBook" }
+
+  /api/v1/instruments/{id}/sparkline:
+    get:
+      summary: Sparkline (30 точек через GetCandles 1m)
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+        - in: query
+          name: points
+          schema: { type: integer, default: 30, maximum: 100 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Candle" }
+
+  /api/v1/orders:
+    post:
+      summary: Создать заявку (LIMIT или MARKET)
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlaceOrderRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "422":
+          description: Бизнес-валидация (INSUFFICIENT_FUNDS, INVALID_PRICE, …)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+    get:
+      summary: Список заявок
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [active, history] }
+        - in: query
+          name: cursor
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrdersPage" }
+
+  /api/v1/orders/{id}:
+    get:
+      summary: Одна заявка
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      summary: Отмена заявки
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: No Content }
+        "422":
+          description: Заявка не отменяемая
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /api/v1/portfolio:
+    get:
+      summary: Портфель + позиции + P&L
+      security: [ { bearerAuth: [] } ]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Portfolio" }
+
+  /api/v1/trades:
+    get:
+      summary: История сделок
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: instrumentId
+          schema: { type: integer }
+        - in: query
+          name: from
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: to
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TradesPage" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Невалидный или просроченный токен
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    NotFound:
+      description: Объект не найден
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    RateLimited:
+      description: Превышен лимит запросов
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+
+  schemas:
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: { type: object, additionalProperties: { type: string } }
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        displayName: { type: string }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string }
+        password: { type: string }
+
+    TokenResponse:
+      type: object
+      properties:
+        userId: { type: string, format: uuid }
+        accessToken: { type: string }
+        refreshToken: { type: string }
+
+    Instrument:
+      type: object
+      properties:
+        id: { type: integer }
+        ticker: { type: string }
+        name: { type: string }
+        currency: { type: string }
+        lotSize: { type: integer }
+        priceStep: { type: string, description: "decimal" }
+        isActive: { type: boolean }
+
+    Quote:
+      type: object
+      properties:
+        instrumentId: { type: integer }
+        ticker: { type: string }
+        price: { type: string }
+        bid: { type: string }
+        ask: { type: string }
+        dayOpen: { type: string }
+        dayHigh: { type: string }
+        dayLow: { type: string }
+        dayVolume: { type: integer, format: int64 }
+        changePct: { type: string }
+        ts: { type: integer, format: int64 }
+
+    InstrumentDetails:
+      type: object
+      properties:
+        instrument: { $ref: "#/components/schemas/Instrument" }
+        quote: { $ref: "#/components/schemas/Quote" }
+
+    Candle:
+      type: object
+      properties:
+        openTime: { type: integer, format: int64 }
+        open: { type: string }
+        high: { type: string }
+        low: { type: string }
+        close: { type: string }
+        volume: { type: integer, format: int64 }
+        trades: { type: integer }
+        isClosed: { type: boolean }
+
+    OrderBookLevel:
+      type: object
+      properties:
+        price: { type: string }
+        quantity: { type: integer, format: int64 }
+
+    OrderBook:
+      type: object
+      properties:
+        instrumentId: { type: integer }
+        bids:
+          type: array
+          items: { $ref: "#/components/schemas/OrderBookLevel" }
+        asks:
+          type: array
+          items: { $ref: "#/components/schemas/OrderBookLevel" }
+        ts: { type: integer, format: int64 }
+
+    PlaceOrderRequest:
+      type: object
+      required: [instrumentId, side, type, quantity]
+      properties:
+        instrumentId: { type: integer }
+        side: { type: string, enum: [BUY, SELL] }
+        type: { type: string, enum: [LIMIT, MARKET] }
+        price: { type: string, description: "decimal, обязателен для LIMIT" }
+        quantity: { type: integer, format: int64 }
+
+    Order:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        instrumentId: { type: integer }
+        side: { type: string, enum: [BUY, SELL] }
+        type: { type: string, enum: [LIMIT, MARKET] }
+        price: { type: string }
+        quantity: { type: integer, format: int64 }
+        filledQuantity: { type: integer, format: int64 }
+        status: { type: string, enum: [PENDING, PARTIAL, FILLED, CANCELLED, REJECTED] }
+        avgFillPrice: { type: string }
+        commission: { type: string }
+        createdAt: { type: integer, format: int64 }
+        closedAt: { type: integer, format: int64 }
+
+    OrdersPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Order" }
+        nextCursor: { type: string }
+
+    Trade:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        orderId: { type: string, format: uuid }
+        instrumentId: { type: integer }
+        side: { type: string, enum: [BUY, SELL] }
+        price: { type: string }
+        quantity: { type: integer, format: int64 }
+        commission: { type: string }
+        executedAt: { type: integer, format: int64 }
+
+    TradesPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Trade" }
+        nextCursor: { type: string }
+
+    Position:
+      type: object
+      properties:
+        instrumentId: { type: integer }
+        quantity: { type: integer, format: int64 }
+        avgPrice: { type: string }
+        currentPrice: { type: string }
+        value: { type: string }
+        unrealizedPnl: { type: string }
+        unrealizedPnlPct: { type: string }
+
+    Portfolio:
+      type: object
+      properties:
+        cash: { type: string }
+        totalValue: { type: string }
+        positions:
+          type: array
+          items: { $ref: "#/components/schemas/Position" }

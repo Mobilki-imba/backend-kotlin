@@ -27,5 +27,6 @@ Thumbs.db
 .env.local
 application-local.yml
 
-# Spring Boot
-spring-shell.log
+# Local secrets
+apps/bff/src/main/resources/keys/*.json
+!apps/bff/src/main/resources/keys/.gitkeep

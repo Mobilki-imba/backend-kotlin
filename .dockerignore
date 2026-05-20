@@ -1,0 +1,12 @@
+.git
+.gitignore
+.idea
+.gradle
+build
+**/build
+**/.gradle
+*.iml
+docs
+trading-app-spec
+.DS_Store
+*.log
